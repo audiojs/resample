@@ -1,0 +1,20 @@
+{
+  "name": "@audio/resample-polyphase",
+  "version": "0.0.0",
+  "description": "Polyphase FIR resampling — streaming-friendly rational rate conversion (48↔16/24 kHz voice-agent path)",
+  "type": "module",
+  "sideEffects": false,
+  "private": true,
+  "keywords": [
+    "audio",
+    "dsp",
+    "resample",
+    "sample-rate",
+    "polyphase"
+  ],
+  "license": "MIT",
+  "author": "Dmitry Iv. <dfcreative@gmail.com>",
+  "engines": {
+    "node": ">=18"
+  }
+}

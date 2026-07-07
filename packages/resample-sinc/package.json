@@ -1,20 +1,31 @@
 {
   "name": "@audio/resample-sinc",
-  "version": "0.0.0",
-  "description": "Windowed-sinc resampling — high quality, anti-aliased (SoX rate / libsamplerate class)",
+  "version": "1.0.0",
+  "description": "Windowed-sinc (Lanczos, 32-tap) resampling with anti-alias kernel widening on downsample",
   "type": "module",
   "sideEffects": false,
-  "private": true,
+  "main": "sinc.js",
+  "exports": {
+    ".": "./sinc.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "sinc.js"
+  ],
   "keywords": [
     "audio",
     "dsp",
     "resample",
-    "sample-rate",
-    "sinc"
+    "sinc",
+    "lanczos",
+    "sample-rate"
   ],
   "license": "MIT",
   "author": "Dmitry Iv. <dfcreative@gmail.com>",
   "engines": {
     "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

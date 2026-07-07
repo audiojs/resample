@@ -1,20 +1,30 @@
 {
   "name": "@audio/resample-linear",
-  "version": "0.0.0",
-  "description": "Linear-interpolation resampling — cheap, real-time",
+  "version": "1.0.0",
+  "description": "Linear-interpolation resampling — cheap, real-time (no anti-alias; use resample-sinc for downsampling)",
   "type": "module",
   "sideEffects": false,
-  "private": true,
+  "main": "linear.js",
+  "exports": {
+    ".": "./linear.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "linear.js"
+  ],
   "keywords": [
     "audio",
     "dsp",
     "resample",
-    "sample-rate",
-    "linear"
+    "linear",
+    "sample-rate"
   ],
   "license": "MIT",
   "author": "Dmitry Iv. <dfcreative@gmail.com>",
   "engines": {
     "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

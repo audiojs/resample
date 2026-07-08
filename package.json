@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "sideEffects": false,
-  "description": "Sample-rate conversion — umbrella for @audio/resample-* atoms (sinc, linear, polyphase)",
+  "description": "Sample-rate conversion \u2014 umbrella for @audio/resample-* atoms (sinc, linear, polyphase)",
   "workspaces": [
     "packages/*"
   ],
@@ -34,7 +34,8 @@
   },
   "dependencies": {
     "@audio/resample-sinc": "^1.0.0",
-    "@audio/resample-linear": "^1.0.0"
+    "@audio/resample-linear": "^1.0.0",
+    "@audio/resample-polyphase": "^1.0.0"
   },
   "devDependencies": {
     "tst": "^9.4.0"

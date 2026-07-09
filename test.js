@@ -1,5 +1,5 @@
 import test, { almost, ok, is } from 'tst'
-import { sinc, linear, polyphase, polyphaseStream } from './index.js'
+import { sinc, sincRead, resampleTo, linear, polyphase, polyphaseStream } from './index.js'
 
 const fs = 44100
 
@@ -107,4 +107,30 @@ test('polyphase — invalid rates throw', () => {
 	try { polyphase(sine(440, 64), {}) } catch { threw++ }
 	try { polyphase(sine(440, 64), { from: 0, to: 48000 }) } catch { threw++ }
 	is(threw, 2)
+})
+
+test('sinc: sincRead — fractional read of a sine matches analytic value', () => {
+  let fs = 48000, f = 440
+  let x = new Float32Array(4096)
+  for (let i = 0; i < x.length; i++) x[i] = Math.sin(2 * Math.PI * f * i / fs)
+  let err = 0
+  for (let pos of [1000.25, 1500.5, 2000.75, 3000.125]) {
+    let want = Math.sin(2 * Math.PI * f * pos / fs)
+    err = Math.max(err, Math.abs(sincRead(x, pos) - want))
+  }
+  ok(err < 1e-3, 'fractional sinc read accurate, err ' + err)
+})
+
+test('sinc: resampleTo — half-length downsample keeps a low sine intact', () => {
+  let fs = 48000, f = 440
+  let x = new Float32Array(8192)
+  for (let i = 0; i < x.length; i++) x[i] = Math.sin(2 * Math.PI * f * i / fs)
+  let y = resampleTo(x, 4096)
+  ok(y.length === 4096, 'exact output length')
+  let err = 0
+  for (let i = 256; i < 4096 - 256; i++) {
+    let want = Math.sin(2 * Math.PI * f * (i * (8192 - 1) / (4096 - 1)) / fs)
+    err = Math.max(err, Math.abs(y[i] - want))
+  }
+  ok(err < 2e-2, 'downsampled sine intact, err ' + err)
 })

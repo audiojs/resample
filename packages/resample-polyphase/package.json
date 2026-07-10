@@ -1,6 +1,6 @@
 {
   "name": "@audio/resample-polyphase",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Polyphase FIR resampling — streaming-friendly rational rate conversion (48↔16/24 kHz voice-agent path)",
   "type": "module",
   "sideEffects": false,

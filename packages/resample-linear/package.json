@@ -1,6 +1,6 @@
 {
   "name": "@audio/resample-linear",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Linear-interpolation resampling — cheap, real-time (no anti-alias; use resample-sinc for downsampling)",
   "type": "module",
   "sideEffects": false,

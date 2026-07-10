@@ -1,6 +1,6 @@
 {
   "name": "@audio/resample-sinc",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Windowed-sinc (Lanczos, 32-tap) resampling with anti-alias kernel widening on downsample",
   "type": "module",
   "sideEffects": false,

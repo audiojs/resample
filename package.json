@@ -1,6 +1,6 @@
 {
   "name": "@audio/resample",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "type": "module",
   "sideEffects": false,
   "description": "Sample-rate conversion — umbrella for @audio/resample-* atoms (sinc, linear, polyphase)",

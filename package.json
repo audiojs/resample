@@ -1,6 +1,6 @@
 {
   "name": "@audio/resample",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "type": "module",
   "sideEffects": false,
   "description": "Sample-rate conversion — umbrella for @audio/resample-* atoms (sinc, linear, polyphase)",
@@ -46,5 +46,6 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/audiojs/resample.git"
-  }
+  },
+  "funding": "https://github.com/sponsors/audiojs"
 }

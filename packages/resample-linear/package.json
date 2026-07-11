@@ -1,6 +1,6 @@
 {
   "name": "@audio/resample-linear",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Linear-interpolation resampling — cheap, real-time (no anti-alias; use resample-sinc for downsampling)",
   "type": "module",
   "sideEffects": false,
@@ -10,8 +10,10 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "linear.js"
+    "linear.js",
+    "index.d.ts"
   ],
+  "types": "index.d.ts",
   "keywords": [
     "audio",
     "dsp",
@@ -31,5 +33,6 @@
     "type": "git",
     "url": "git+https://github.com/audiojs/resample.git",
     "directory": "packages/resample-linear"
-  }
+  },
+  "funding": "https://github.com/sponsors/audiojs"
 }

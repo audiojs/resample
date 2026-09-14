@@ -6,7 +6,10 @@
   "sideEffects": false,
   "main": "linear.js",
   "exports": {
-    ".": "./linear.js",
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./linear.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

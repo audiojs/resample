@@ -6,7 +6,10 @@
   "sideEffects": false,
   "main": "sinc.js",
   "exports": {
-    ".": "./sinc.js",
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./sinc.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

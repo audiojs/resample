@@ -1,0 +1,8 @@
+// @audio/resample — sample-rate conversion umbrella re-exporting every @audio/resample-* atom.
+
+export { default as sinc, sincRead, resampleTo } from '@audio/resample-sinc'
+export { default as linear } from '@audio/resample-linear'
+export { default as polyphase, stream as polyphaseStream } from '@audio/resample-polyphase'
+export type { LinearOptions } from '@audio/resample-linear'
+export type { PolyphaseOptions, PolyphaseStream } from '@audio/resample-polyphase'
+export type { SincOptions } from '@audio/resample-sinc'

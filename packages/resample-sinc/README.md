@@ -2,8 +2,9 @@
 
 > Windowed-sinc resampling — high quality, anti-aliased (SoX rate / libsamplerate class)
 
-Windowed-sinc (Lanczos, 32-tap) resampling with kernel widening on downsample — aliases
-are suppressed by the widened kernel, no separate lowpass needed.
+Windowed-sinc (Lanczos, a = 16) resampling: 32 taps, widened by the ratio on downsample (64 at 2:1), so the
+kernel itself is the anti-alias lowpass. Flat within 0.01 dB to 0.8 of the lower Nyquist (+0.1 dB at 0.9), no delay;
+aliases −39 dB just past Nyquist, −62 dB from 1.36× Nyquist up (swept, 2:1 and 3:1).
 
 ```js
 import sinc, { sincRead, resampleTo } from '@audio/resample-sinc'

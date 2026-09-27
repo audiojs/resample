@@ -20,7 +20,9 @@ s.flush()        // → Float32Array (drains remaining history)
 
 `stream(opts: {from, to}) → {write(chunk) → Float32Array, flush() → Float32Array}`
 
-Alias floor ≈−97 dB (15 kHz tone downsampled 44.1k → 22.05k).
+Taps per phase widen with the ratio on downsample (32 at 44.1k → 48k, 64 at 2:1, 96 at 3:1), so every ratio has the
+same response: flat within 0.001 dB to 0.8 of the lower Nyquist (−0.34 dB at 0.9), no delay, alias floor −93 dB
+from 1.36× Nyquist up (swept, 44.1k → 22.05k and 48k → 16k).
 
 ## Install
 

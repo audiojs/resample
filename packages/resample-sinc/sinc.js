@@ -1,5 +1,5 @@
-// Windowed-sinc (Lanczos, 32-tap) resampling with kernel widening on downsample —
-// aliases are suppressed by the widened kernel, no separate lowpass needed.
+// Windowed-sinc (Lanczos, a = 16) resampling: 32 taps, widened by the ratio on downsample (64 at 2:1) so the
+// lowpass at the new Nyquist keeps all 16 lobes each side; no separate anti-alias filter needed.
 // Ported from the audio-core interpolator (same math, standalone API).
 
 const HALF = 16
@@ -13,16 +13,32 @@ export default function resample (data, { from, to } = {}) {
 	let n = Math.round(data.length * to / from)
 	let out = new Float32Array(n)
 	let scale = rate > 1 ? 1 / rate : 1     // widen kernel when downsampling (anti-alias)
+	// taps each side: the kernel reaches |x| = HALF at t = HALF / scale. Fewer taps cut the window where it is still
+	// high (0.64 at 2:1): passband ripple of ±0.3 dB, and a skewed delay where the cut is uneven (0.1 samples at 3:1)
+	let T = Math.ceil(HALF / scale)
+
+	// Lanczos weight sinc(x)·sinc(x/HALF) at x = (t − frac)·scale, by angle addition: the sines of π·scale·t and
+	// π·scale·t/HALF are tabled per tap, those of the fraction taken once per output sample (4 trig calls, not 64)
+	let A = new Float64Array(2 * T), B = new Float64Array(2 * T), C = new Float64Array(2 * T), D = new Float64Array(2 * T)
+	for (let j = 0, t = 1 - T; t <= T; t++, j++) {
+		let a = Math.PI * scale * t
+		A[j] = Math.sin(a); B[j] = Math.cos(a); C[j] = Math.sin(a / HALF); D[j] = Math.cos(a / HALF)
+	}
+	let K = HALF / (Math.PI * Math.PI)
 
 	for (let i = 0; i < n; i++) {
 		let pos = i * rate
 		let base = Math.floor(pos), frac = pos - base
+		let f = Math.PI * scale * frac, sf = Math.sin(f), cf = Math.cos(f), sg = Math.sin(f / HALF), cg = Math.cos(f / HALF)
 		let sum = 0, w = 0
-		for (let t = 1 - HALF; t <= HALF; t++) {
+		for (let j = 0, t = 1 - T; t <= T; t++, j++) {
 			let idx = base + t
 			if (idx < 0 || idx >= data.length) continue
 			let x = (t - frac) * scale
-			let k = sinc(x) * sinc(x / HALF)
+			if (Math.abs(x) >= HALF) continue
+			// sin(π·x)·sin(π·x/HALF) / (π·x · π·x/HALF); near x = 0 (a position a rounding error off an integer) the two
+			// products cancel, so it is taken directly
+			let k = Math.abs(x) < 1e-3 ? sinc(x) * sinc(x / HALF) : (A[j] * cf - B[j] * sf) * (C[j] * cg - D[j] * sg) * K / (x * x)
 			sum += data[idx] * k; w += k
 		}
 		out[i] = w !== 0 ? sum / w : 0

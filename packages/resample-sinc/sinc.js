@@ -3,22 +3,76 @@
 // Ported from the audio-core interpolator (same math, standalone API).
 
 const HALF = 16
+const CAP = 1 << 18                       // phase table entries at most (2 MB): 44.1↔48 takes 5120 and 5292
 const sinc = x => x === 0 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x)
+const gcd = (a, b) => b ? gcd(b, a % b) : a
+
+// Lanczos taps each side: the kernel reaches |x| = HALF at t = HALF / scale. Fewer taps cut the window where it is
+// still high (0.64 at 2:1): passband ripple of ±0.3 dB, and a skewed delay where the cut is uneven (0.1 samples at 3:1)
+const taps = scale => Math.ceil(HALF / scale)
+const tables = new Map()
+
+/**
+ * The phase table resample() reads at integer rates, for streaming forms to share its arithmetic: output i sits at
+ * input position i·M/L (from/to = M/L reduced); phase p = i·M mod L weighs input base + 1 − T + j, j in J0[p]..J1[p),
+ * by W[p·2T + j], base = floor(i·M/L). Null for other rates, or a table past CAP. Kept for the last few ratios, so
+ * block-wise calls build it once. J0..J1 are the taps with |x| < HALF (the outermost can fall on it), so a NaN or ∞
+ * past them stays out.
+ */
+export function phases (from, to) {
+	let g = Number.isInteger(from) && Number.isInteger(to) ? gcd(from, to) : 0
+	if (!g) return null
+	let L = to / g, M = from / g, key = M + '/' + L, tab = tables.get(key)
+	if (tab) return tab
+	let rate = from / to, scale = rate > 1 ? 1 / rate : 1, T = taps(scale), S = 2 * T
+	if (L * S > CAP) return null
+	let W = new Float64Array(L * S), J0 = new Int32Array(L), J1 = new Int32Array(L)
+	for (let p = 0; p < L; p++) {
+		let j0 = S, j1 = 0
+		for (let j = 0; j < S; j++) {
+			let x = (j + 1 - T - p / L) * scale
+			if (Math.abs(x) >= HALF) continue
+			W[p * S + j] = sinc(x) * sinc(x / HALF)
+			if (j < j0) j0 = j
+			j1 = j + 1
+		}
+		J0[p] = j0; J1[p] = j1
+	}
+	if (tables.size >= 8) tables.delete(tables.keys().next().value)
+	tables.set(key, tab = { L, M, T, W, J0, J1 })
+	return tab
+}
 
 export default function resample (data, { from, to } = {}) {
 	if (!(from > 0) || !(to > 0)) throw new RangeError('resample: from/to must be positive sample rates')
 	if (from === to) return Float32Array.from(data)
 
 	let rate = from / to                    // input samples per output sample
-	let n = Math.round(data.length * to / from)
+	let len = data.length
+	let n = Math.round(len * to / from)
 	let out = new Float32Array(n)
 	let scale = rate > 1 ? 1 / rate : 1     // widen kernel when downsampling (anti-alias)
-	// taps each side: the kernel reaches |x| = HALF at t = HALF / scale. Fewer taps cut the window where it is still
-	// high (0.64 at 2:1): passband ripple of ±0.3 dB, and a skewed delay where the cut is uneven (0.1 samples at 3:1)
-	let T = Math.ceil(HALF / scale)
+	let T = taps(scale)
 
-	// Lanczos weight sinc(x)·sinc(x/HALF) at x = (t − frac)·scale, by angle addition: the sines of π·scale·t and
-	// π·scale·t/HALF are tabled per tap, those of the fraction taken once per output sample (4 trig calls, not 64)
+	// Integer rates: the fraction of output i's position cycles through L phases, each one's weights tabled once, so an
+	// output is a dot product. base, p stepped in integers: the position is exact where i·rate drifts (4e-9 samples
+	// 10 minutes in). Taps outside the input are left out and the rest renormalized: weights summed as used, at the
+	// ends as between
+	let tab = phases(from, to)
+	if (tab) {
+		let { L, M, W, J0, J1 } = tab, S = 2 * T
+		for (let i = 0, p = 0, base = 0; i < n; i++) {
+			let lo = base + 1 - T, o = p * S - lo, sum = 0, w = 0
+			for (let j = Math.max(0, lo + J0[p]), e = Math.min(len, lo + J1[p]); j < e; j++) { let k = W[o + j]; sum += data[j] * k; w += k }
+			out[i] = w !== 0 ? sum / w : 0
+			if ((p += M) >= L) { let q = Math.floor(p / L); base += q; p -= q * L }
+		}
+		return out
+	}
+
+	// Other rates, or a table past CAP: the Lanczos weight sinc(x)·sinc(x/HALF) at x = (t − frac)·scale, by angle
+	// addition: the sines of π·scale·t and π·scale·t/HALF are tabled per tap, those of the fraction taken once per
+	// output sample (4 trig calls, not 64)
 	let A = new Float64Array(2 * T), B = new Float64Array(2 * T), C = new Float64Array(2 * T), D = new Float64Array(2 * T)
 	for (let j = 0, t = 1 - T; t <= T; t++, j++) {
 		let a = Math.PI * scale * t
@@ -33,7 +87,7 @@ export default function resample (data, { from, to } = {}) {
 		let sum = 0, w = 0
 		for (let j = 0, t = 1 - T; t <= T; t++, j++) {
 			let idx = base + t
-			if (idx < 0 || idx >= data.length) continue
+			if (idx < 0 || idx >= len) continue
 			let x = (t - frac) * scale
 			if (Math.abs(x) >= HALF) continue
 			// sin(π·x)·sin(π·x/HALF) / (π·x · π·x/HALF); near x = 0 (a position a rounding error off an integer) the two

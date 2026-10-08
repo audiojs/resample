@@ -16,6 +16,8 @@ sinc(data, { from: 44100, to: 48000 })   // → Float32Array
 
 `sincRead(data, pos)` / `resampleTo(data, n)` — fractional-position read and fixed-output-length primitives, for custom resampling loops.
 
+`phases(from, to)`: the weights `sinc()` reads at integer rates, one row per phase, for streaming forms that must give its samples.
+
 ## Install
 
 ```

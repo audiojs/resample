@@ -57,15 +57,16 @@ test('sinc — anti-alias: 15 kHz attenuated when downsampling to 22.05k (Nyquis
 	ok(ratio < 0.1, `alias suppressed to ${(20 * Math.log10(ratio)).toFixed(1)} dB`)
 })
 
-// The Lanczos weights by angle addition equal the direct form: the previous implementation, kept here as the
-// reference, sin() per tap. 7→5 puts positions a rounding error below an integer, where the identity cancels
-// (taken directly there). Equal after the Float32 store, sample for sample.
+// The phase table (integer rates) and the Lanczos weights by angle addition (others) equal the direct form: the
+// previous implementation, kept here as the reference, sin() per tap, at the exact position i·from/to. 7.7→5.5 puts
+// positions a rounding error off an integer, where the identity cancels (taken directly there). Equal after the
+// Float32 store, sample for sample
 test('sinc: equals the direct Lanczos form at every ratio', () => {
 	const HALF = 16, sn = x => x === 0 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x)
 	const direct = (data, from, to) => {
 		let rate = from / to, n = Math.round(data.length * to / from), out = new Float32Array(n), scale = rate > 1 ? 1 / rate : 1
 		for (let i = 0; i < n; i++) {
-			let pos = i * rate, base = Math.floor(pos), frac = pos - base, sum = 0, w = 0
+			let base = Math.floor(i * from / to), frac = (i * from - base * to) / to, sum = 0, w = 0
 			for (let T = Math.ceil(HALF / scale), t = 1 - T; t <= T; t++) { let idx = base + t, x = (t - frac) * scale; if (idx < 0 || idx >= data.length || Math.abs(x) >= HALF) continue; let k = sn(x) * sn(x / HALF); sum += data[idx] * k; w += k }
 			out[i] = w !== 0 ? sum / w : 0
 		}
@@ -73,7 +74,7 @@ test('sinc: equals the direct Lanczos form at every ratio', () => {
 	}
 	let seed = 1, rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647
 	let x = Float32Array.from({ length: 4410 }, (_, i) => 0.5 * Math.sin(i * 0.05) + 0.3 * (rnd() * 2 - 1))
-	for (let [from, to] of [[1, 4], [44100, 48000], [48000, 44100], [3, 1], [1, 3], [7, 5], [5, 7], [11, 13], [48000, 16000]]) {
+	for (let [from, to] of [[1, 4], [44100, 48000], [48000, 44100], [3, 1], [1, 3], [7, 5], [5, 7], [11, 13], [48000, 16000], [7.7, 5.5], [44100.5, 48000], [48000, 22050.5]]) {
 		let a = direct(x, from, to), b = sinc(x, { from, to }), diff = 0
 		for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) diff++
 		is([b.length, diff], [a.length, 0], `${from}→${to}: every sample equal`)

@@ -157,6 +157,25 @@ test('polyphase stream — chunked ≡ batch exactly (48↔16 voice path)', () =
 	ok(diff === 0, `bit-identical (${diff})`)
 })
 
+// the phase of output m is m·M mod L, its first tap at floor(m·M / L): at 44101 → 44100 (M = 44101) m·M passes 2^31
+// at m = 48,695, a second of audio; the outputs after it on the sine as those before, a stream's chunks the batch's bits
+test('polyphase: outputs past m·M = 2^31 on the sine, chunked ≡ batch (44101 → 44100)', () => {
+	let from = 44101, to = 44100, x = sine(1000, 120000, from), y = polyphase(x, { from, to })
+	let err = (a, b) => { let e = 0; for (let m = a; m < b; m++) e = Math.max(e, Math.abs(y[m] - Math.sin(2 * Math.PI * 1000 * m / to))); return e }
+	ok(err(1000, 48000) < 1e-4, `before: ${err(1000, 48000)}`)
+	ok(err(50000, y.length - 1000) < 1e-4, `after: ${err(50000, y.length - 1000)}`)
+	let s = polyphaseStream({ from, to }), parts = []
+	for (let pos = 0, i = 0, sizes = [1, 31, 32, 33, 4097, 7]; pos < x.length; i++) {
+		let n = Math.min(sizes[i % sizes.length], x.length - pos)
+		parts.push(s.write(x.subarray(pos, pos + n))); pos += n
+	}
+	parts.push(s.flush())
+	let cat = new Float32Array(parts.reduce((a, p) => a + p.length, 0)), o = 0
+	for (let p of parts) { cat.set(p, o); o += p.length }
+	is(cat.length, y.length)
+	ok(cat.every((v, i) => Object.is(v, y[i])), 'bit-identical')
+})
+
 test('polyphase stream: same rate passes through, nothing added at flush', () => {
 	let x = sine(440, 1000), s = polyphaseStream({ from: 48000, to: 48000 })
 	is([s.write(x).length, s.flush().length], [1000, 0])

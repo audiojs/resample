@@ -43,6 +43,27 @@ function design (L, M, taps) {
 	return phases
 }
 
+// outputs m0 … m0 + n − 1 of a chunk whose first sample is input c: output m the taps of phase m·M mod L over the
+// inputs from its base down. The phase and the base's place in the chunk (o) carried from one output to the next in
+// small integers: m·M passes 2^31 in minutes, and an index that is not one costs every tap
+function fir (data, c, hist, phases, taps, D, L, M, m0, n) {
+	let out = new Float32Array(n), o = (Math.floor(m0 * M / L) + D - c) | 0, p = (m0 * M % L) | 0
+	for (let j = 0; j < n; j++) {
+		let h = phases[p], sum = 0
+		// every tap within this chunk: read straight from it; else some are in the history, or before the start
+		if (o >= taps - 1) for (let k = 0; k < taps; k++) sum += h[k] * data[o - k]
+		else for (let k = 0; k < taps; k++) {
+			let rel = o - k
+			if (rel + c < 0) break
+			sum += h[k] * (rel >= 0 ? data[rel] : hist[taps + rel])
+		}
+		out[j] = sum
+		p += M
+		if (p >= L) { let s = (p / L) | 0; o += s; p -= s * L }
+	}
+	return out
+}
+
 /**
  * Streaming rational resampler — write(chunk) returns output ready so far, flush()
  * drains the tail. Chunked concatenation ≡ batch output exactly.
@@ -59,36 +80,25 @@ export function stream ({ from, to } = {}) {
 	let m = 0                              // next global output index
 
 	// output m: phase p = m·M mod L, taps read absolute inputs (base+D−k), k = 0..taps−1,
-	// where base = floor(m·M / L); D recenters the causal window (group-delay comp)
-	function run (data, avail) {
+	// where base = floor(m·M / L); D recenters the causal window (group-delay comp).
+	// Outputs while base < avail: m up to ⌈(avail − D)·L / M⌉, the first `keep` of them made
+	function run (data, avail, keep = Infinity) {
 		if (!phases) return Float32Array.from(data)
-		let out = []
-		while (Math.floor(m * M / L) + D < avail) {
-			let up = m * M
-			let base = Math.floor(up / L) + D
-			let h = phases[up % L], sum = 0
-			for (let k = 0; k < taps; k++) {
-				let idx = base - k
-				if (idx < 0) break
-				let rel = idx - consumed
-				sum += h[k] * (rel >= 0 ? data[rel] : hist[taps + rel])
-			}
-			out.push(sum)
-			m++
-		}
+		let n = Math.max(0, Math.ceil((avail - D) * L / M) - m)
+		let out = fir(data, consumed, hist, phases, taps, D, L, M, m, Math.min(n, keep))
+		m += n
 		if (data.length >= taps) hist.set(data.subarray(data.length - taps))
 		else { hist.copyWithin(0, data.length); hist.set(data, taps - data.length) }
 		consumed += data.length
-		return Float32Array.from(out)
+		return out
 	}
 
 	return {
 		write: (chunk) => run(chunk, consumed + chunk.length),
 		flush () {
 			let expect = Math.round(consumed * L / M)
-			let pad = new Float32Array(taps)
-			let tail = run(pad, consumed + taps + D)
-			return tail.subarray(0, Math.max(0, expect - (m - tail.length)))
+			// the outputs up to the input's end alone: those after it would read past the padding
+			return run(new Float32Array(taps), consumed + taps + D, Math.max(0, expect - m))
 		},
 	}
 }

@@ -100,6 +100,72 @@ export default function resample (data, { from, to } = {}) {
 	return out
 }
 
+// ── Streaming oversampler: resample() up by a whole factor and back, as a stream ──
+// For a memoryless transfer run at a multiple of the rate (a saturator's curve): a whole call is resample() up, the
+// transfer, resample() down; a stream cannot read ahead as those do, so its output comes `latency` samples late. Both
+// halves read phases()' rows, tap for tap in resample()'s order, and divide by the same sums: shifted back by the
+// latency, the stream is the whole call bit for bit, at any whole sample rate. Except at the ends: within `ring`
+// samples of the start and `latency` of the end resample() leaves out the taps past the signal and divides by the sum
+// of those left, where a stream, begun from silence, reads zeros there and divides by the whole sum. So the stream is
+// the whole call of the signal with silence before it, and after it as far as the stream is fed silence.
+
+/**
+ * State for oversampling a stream by `factor` (a whole number from 2) in calls of up to `maxBlockSize` samples:
+ * up() takes a call's n samples to `hi`, factor·n of them, for a transfer to run on in place; down() takes `hi` back to
+ * n samples, `latency` late, and the input as late to `dry`, for a dry path. A sample's points (the factor that up()
+ * makes for it) reach down()'s output from that sample to `latency` samples on. `ring`: samples the output still moves
+ * once the input stops, past `latency` (for a transfer that takes 0 to 0). Nothing is allocated after this call.
+ */
+export function oversampler (factor, maxBlockSize) {
+	if (!(Number.isInteger(factor) && factor >= 2)) throw new RangeError('oversampler: factor must be a whole number from 2')
+	let N = factor, u = phases(1, N), d = phases(N, 1)
+	if (!u || !d) throw new RangeError(`oversampler: factor ${N} is past the phase table's cap`)
+	// up: point N·b + p reads input b + 1 − u.T + j, j from J0[p] to J1[p]; down: output r reads point N·r + 1 − d.T + j,
+	// j from J0[0] to J1[0]. up() makes the points of base b = g − A as input g comes in, A the furthest a phase reads
+	// ahead, so output r has every point it reads once input r + A + ⌊(J1[0] − d.T) / N⌋ is in: the latency
+	let A = 0, j0 = 2 * u.T, sums = new Float64Array(N + 1), ring = 0
+	for (let p = 0; p < N; p++) {
+		A = Math.max(A, u.J1[p] - u.T); j0 = Math.min(j0, u.J0[p])
+		for (let j = u.J0[p]; j < u.J1[p]; j++) sums[p] += u.W[2 * u.T * p + j]
+	}
+	for (let j = d.J0[0]; j < d.J1[0]; j++) sums[N] += d.W[j]
+	let latency = A + Math.floor((d.J1[0] - d.T) / N)
+	// the earliest input an output reads: point N·r + e (e = j + 1 − d.T) reads from input r + ⌊e/N⌋ + 1 − u.T + J0[e mod N]
+	for (let j = d.J0[0]; j < d.J1[0]; j++) { let e = j + 1 - d.T, b = Math.floor(e / N); ring = Math.max(ring, u.T - 1 - b - u.J0[e - b * N]) }
+	// history: the input up() reads behind a call's first sample (and dry's), the points down() reads behind its first
+	let hx = Math.max(A + u.T - 1 - j0, latency), hy = d.T - 1 - d.J0[0] + N * (latency - A)
+	return {
+		factor: N, latency, ring, hi: new Float32Array(N * maxBlockSize), dry: new Float32Array(maxBlockSize),
+		x: new Float32Array(hx + maxBlockSize), y: new Float32Array(hy + N * maxBlockSize), hx, hy, xo: hx - A + 1 - u.T,
+		uw: u.W, u0: u.J0, u1: u.J1, us: 2 * u.T, dw: d.W, d0: d.J0[0], d1: d.J1[0], sums,
+	}
+}
+
+/** `n` samples of `data` into `o`; their `o.factor`·n points at the higher rate out to `o.hi` */
+export function up (o, data, n) {
+	let N = o.factor, x = o.x, hi = o.hi, W = o.uw, J0 = o.u0, J1 = o.u1, S = o.us, sums = o.sums, hx = o.hx, xo = o.xo
+	for (let i = 0; i < n; i++) x[hx + i] = data[i]
+	for (let i = 0, k = 0; i < n; i++) for (let p = 0; p < N; p++, k++) {
+		let s = 0
+		for (let j = J0[p], e = J1[p], a = i + xo, w = p * S; j < e; j++) s += x[a + j] * W[w + j]
+		hi[k] = s / sums[p]
+	}
+}
+
+/** `o.hi` back to `n` samples of `data`, `o.latency` samples late; the input as late to `o.dry` */
+export function down (o, data, n) {
+	let N = o.factor, x = o.x, y = o.y, hi = o.hi, dry = o.dry, W = o.dw, j0 = o.d0, j1 = o.d1, hx = o.hx, hy = o.hy, L = o.latency, ds = o.sums[N]
+	for (let j = 0, m = N * n; j < m; j++) y[hy + j] = hi[j]
+	for (let i = 0; i < n; i++) {
+		let s = 0
+		for (let j = j0, a = N * i - j0; j < j1; j++) s += y[a + j] * W[j]
+		data[i] = s / ds
+		dry[i] = x[hx + i - L]
+	}
+	x.copyWithin(0, n, n + hx)
+	y.copyWithin(0, N * n, N * n + hy)
+}
+
 // ── Fractional-position primitives (absorbed from the shift family's engine) ──
 // Hann-windowed sinc with angle-addition rotation: sin/cos are advanced by fixed
 // per-tap deltas instead of recomputed, so tight resample loops stay trig-free.

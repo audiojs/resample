@@ -1,5 +1,7 @@
 import test, { almost, ok, is } from 'tst'
+import { execFileSync } from 'node:child_process'
 import { sinc, sincRead, resampleTo, linear, polyphase, polyphaseStream } from './index.js'
+import { oversampler, up, down } from '@audio/resample-sinc'
 
 const fs = 44100
 
@@ -191,4 +193,94 @@ test('sinc: resampleTo — half-length downsample keeps a low sine intact', () =
     err = Math.max(err, Math.abs(y[i] - want))
   }
   ok(err < 2e-2, 'downsampled sine intact, err ' + err)
+})
+
+// The streaming oversampler (oversampler, up, down) against sinc() itself: a curve run at N times the rate in calls of
+// 1 to 1024 samples, shifted back by the latency, is sinc() up, the curve and sinc() down of the whole signal with 64
+// zeros on each side (past any tap's reach), bit for bit; of the signal as it is, everywhere but within `ring` samples
+// of its start and `latency` of its end, where sinc() divides by the taps left inside it and the stream reads silence
+test('sinc: oversampler: up, a curve and down in calls of any size are sinc() up, the curve and sinc() down, latency late, bit for bit', () => {
+	let seed = 7, rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647, curve = v => Math.tanh(3 * v)
+	let whole = (x, fs, N) => { let u = sinc(x, { from: fs, to: N * fs }); for (let i = 0; i < u.length; i++) u[i] = curve(u[i]); return sinc(u, { from: N * fs, to: fs }) }
+	for (let N of [2, 4, 8]) for (let fs of [22050, 44100, 96000]) {
+		let n = 6000, P = 64, x = Float32Array.from({ length: n }, (_, i) => 0.6 * Math.sin(2 * Math.PI * 3000 * i / fs) + 0.3 * (2 * rnd() - 1))
+		let o = oversampler(N, 1024), L = o.latency, R = o.ring, y = new Float32Array(n + L), dry = new Float32Array(n + L)
+		y.set(x)
+		for (let pos = 0, k; pos < y.length; pos += k) {
+			k = Math.min(1 + Math.floor(rnd() * 1024), y.length - pos)
+			let d = y.subarray(pos, pos + k)
+			up(o, d, k)
+			for (let j = 0; j < N * k; j++) o.hi[j] = curve(o.hi[j])
+			down(o, d, k)
+			dry.set(o.dry.subarray(0, k), pos)
+		}
+		let pad = new Float32Array(n + 2 * P), out = y.subarray(L), bare = whole(x, fs, N), off = 0, inside = 0, ends = 0, late = 0
+		pad.set(x, P)
+		let padded = whole(pad, fs, N).subarray(P, P + n)
+		for (let i = 0; i < n; i++) {
+			if (!Object.is(out[i], padded[i])) off++
+			if (out[i] !== bare[i]) i >= R && i < n - L ? inside++ : ends++
+		}
+		for (let i = 0; i < n + L; i++) if (!Object.is(dry[i], i < L ? 0 : x[i - L])) late++
+		is([off, inside, late], [0, 0, 0], `${N}× at ${fs} Hz: the padded whole call; the bare one from ${R} to ${n - L}; dry, the input ${L} late`)
+		ok(ends > 0, `${N}× at ${fs} Hz: the bare whole call parts from the stream at ${ends} of its ${R + L} samples by the ends`)
+	}
+})
+
+// latency and ring are how far sinc() up then down reads ahead of an output and behind it: the first and the last sample
+// an impulse moves, less where it is. A stream fed it moves from it to latency + ring on; the N points up() makes for
+// one sample, moved, move the output from that sample to latency samples on
+test('sinc: oversampler: latency and ring are how far sinc() up and down reads ahead and behind', () => {
+	for (let N of [2, 4, 8]) {
+		let n = 512, K = 256, g = 200, x = new Float32Array(n), o = oversampler(N, 1), s = new Float32Array(n)
+		x[K] = 1
+		let y = sinc(sinc(x, { from: 44100, to: N * 44100 }), { from: N * 44100, to: 44100 })
+		for (let i = 0; i < n; i++) { let d = s.subarray(i, i + 1); d[0] = x[i]; up(o, d, 1); down(o, d, 1) }
+		is([K - y.findIndex(v => v !== 0), y.findLastIndex(v => v !== 0) - K], [o.latency, o.ring], `${N}×: sinc() up and down reads ${o.latency} ahead, ${o.ring} behind`)
+		is([s.findIndex(v => v !== 0), s.findLastIndex(v => v !== 0)], [K, K + o.latency + o.ring], `${N}×: the stream moves from the impulse to latency + ring on`)
+		let a = new Float32Array(n), b = new Float32Array(n)
+		for (let [out, by] of [[a, 0], [b, 0.25]]) {
+			let q = oversampler(N, 1)
+			for (let i = 0; i < n; i++) {
+				let d = out.subarray(i, i + 1)
+				d[0] = 0.5 * Math.sin(0.1 * i)
+				up(q, d, 1)
+				if (i === g) for (let p = 0; p < N; p++) q.hi[p] += by
+				down(q, d, 1)
+			}
+		}
+		let moved = [...a.keys()].filter(i => a[i] !== b[i])
+		is([moved[0], moved.at(-1), moved.length], [g, g + o.latency, o.latency + 1], `${N}×: a sample's points move the output from it to latency samples on`)
+	}
+})
+
+test('sinc: oversampler: a factor that is not a whole number from 2 throws', () => {
+	let threw = 0
+	for (let f of [1, 0, 2.5, -4, NaN]) try { oversampler(f, 128) } catch (e) { if (e instanceof RangeError) threw++ }
+	is(threw, 5)
+})
+
+// measured as @audio/compile's validator measures a processor (tools/verify.js, alloc): a child Node with a 1 MB young
+// generation, 2^17 warm calls of 8 samples, no collection allowed; a curve between up and down, as a saturator runs it
+test('sinc: oversampler: up and down allocate nothing', () => {
+	let code = `
+		import { PerformanceObserver } from 'node:perf_hooks'
+		import { oversampler, up, down } from '@audio/resample-sinc'
+		let out = {}, x = Float32Array.from({ length: 4096 }, (_, i) => 0.7 * Math.sin(i * 0.05)), d = new Float32Array(8)
+		for (let N of [2, 4, 8]) {
+			let o = oversampler(N, 128), hi = o.hi
+			// a call as a host makes it: the block in, up, the curve, down; compiled over the warm calls before the count
+			let call = i => { for (let j = 0; j < 8; j++) d[j] = x[(8 * i + j) & 4095]; up(o, d, 8); for (let j = 0; j < 8 * N; j++) hi[j] = Math.tanh(2 * hi[j]); down(o, d, 8) }
+			for (let i = 0; i < 1 << 15; i++) call(i)
+			globalThis.gc()
+			let gcs = 0, obs = new PerformanceObserver(l => { gcs += l.getEntries().length })
+			obs.observe({ entryTypes: ['gc'] })
+			for (let i = 0; i < 1 << 17; i++) call(i)
+			await new Promise(r => setTimeout(r, 10))
+			obs.disconnect()
+			out[N] = gcs
+		}
+		process.stdout.write(JSON.stringify(out))`
+	let res = JSON.parse(execFileSync(process.execPath, ['--max-semi-space-size=1', '--expose-gc', '--no-concurrent-recompilation', '--input-type=module', '-e', code], { cwd: new URL('.', import.meta.url).pathname, encoding: 'utf8', timeout: 600e3 }))
+	is(res, { 2: 0, 4: 0, 8: 0 }, 'collections over 2^17 calls at 2, 4 and 8 times the rate')
 })
